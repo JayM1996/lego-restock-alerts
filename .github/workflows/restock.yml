@@ -1,0 +1,55 @@
+name: LEGO restock alerts
+
+# One run keeps going for about 5 h 40 min, checking every 15 minutes (07:00-23:00 UK time), then starts the next run
+# itself. The schedule below is only a safety net in case the chain ever stops. Public repo = unlimited free minutes.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */3 * * *"
+
+permissions:
+  contents: write     # save deals_state.json (what has already been sent / last stock seen)
+  actions: write      # start the next run
+
+concurrency:
+  group: lego-restock
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Check every 15 minutes
+        continue-on-error: true
+        timeout-minutes: 345
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          DEALS_GAP: "2"
+        run: |
+          git config user.name "lego-watch"
+          git config user.email "lego-watch@users.noreply.github.com"
+          end=$((SECONDS + 340*60))
+          while [ $SECONDS -lt $end ]; do
+            h=$((10#$(TZ=Europe/London date +%H)))
+            if [ $h -ge 7 ] && [ $h -lt 23 ]; then
+              echo "=== $(TZ=Europe/London date '+%d %b %H:%M')"
+              python -u deals_feed.py || true
+              git add deals_state.json
+              git diff --cached --quiet || { git commit -qm "Update memory" && git pull -q --rebase && git push -q; } || true
+            fi
+            wait_s=$((900 - $(date +%s) % 900 + 120))
+            [ $((SECONDS + wait_s)) -lt $end ] || break
+            sleep $wait_s
+          done
+      - name: Start the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run restock.yml --ref "${{ github.ref_name }}"
