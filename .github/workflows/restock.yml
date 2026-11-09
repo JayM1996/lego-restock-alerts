@@ -1,6 +1,7 @@
 name: LEGO restock alerts
 
-# One run keeps going for about 5 h 40 min, checking every 15 minutes (07:00-23:00 UK time), then starts the next run
+# One run keeps going for about 5 h 40 min, checking every 15 minutes (07:00-23:00 UK time: restocks, HotUKDeals,
+# LEGO.com free gifts, Brick Fanatics news hourly; 23:00-07:00: free gifts only), then starts the next run
 # itself. The schedule below is only a safety net in case the chain ever stops. Public repo = unlimited free minutes.
 on:
   workflow_dispatch:
@@ -41,9 +42,12 @@ jobs:
             if [ $h -ge 7 ] && [ $h -lt 23 ]; then
               echo "=== $(TZ=Europe/London date '+%d %b %H:%M')"
               python -u deals_feed.py || true
-              git add deals_state.json
-              git diff --cached --quiet || { git commit -qm "Update memory" && git pull -q --rebase && git push -q; } || true
+            else
+              echo "=== $(TZ=Europe/London date '+%d %b %H:%M') night: free-gift check only"
+              python -u deals_feed.py --gifts-only || true
             fi
+            git add deals_state.json
+            git diff --cached --quiet || { git commit -qm "Update memory" && git pull -q --rebase && git push -q; } || true
             wait_s=$((900 - $(date +%s) % 900 + 120))
             [ $((SECONDS + wait_s)) -lt $end ] || break
             sleep $wait_s
