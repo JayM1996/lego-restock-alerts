@@ -129,7 +129,7 @@ def very_status(no):
     return "Absent", ""
 
 
-def check_stock(state):
+def check_stock(state, very=True):
     """Restock alerts for the sets in stock_watch.json: LEGO.com and Very. Alerts on a change TO in stock / back order."""
     if not os.path.exists(STOCKFILE):
         return []
@@ -137,7 +137,7 @@ def check_stock(state):
     prev = state.setdefault("stock", {})
     alerts = []
     shops = [("LEGO.com", lego_status, "https://www.lego.com/en-gb/product/%s")]
-    if VERY_EVERY_RUN or time.localtime().tm_min < 15:
+    if very and (VERY_EVERY_RUN or time.localtime().tm_min < 15):
         shops.append(("Very", very_status, "https://www.very.co.uk/e/q/lego+%s.end"))
     refused = set()
     for s in sets:
@@ -235,6 +235,15 @@ def gifts_only():
         json.dump(state, open(STATE, "w", encoding="utf-8"))
 
 
+def stock_only():
+    """Quick check between the 15-minute runs: LEGO.com restocks only (some restocks last only a few minutes)."""
+    state = json.load(open(STATE, encoding="utf-8")) if os.path.exists(STATE) else {"seen": [], "started": False}
+    for a in check_stock(state, very=False):
+        notify("Back in stock", a, "urgent")
+    if not DRY:
+        json.dump(state, open(STATE, "w", encoding="utf-8"))
+
+
 def main():
     watch = json.load(open(WATCH, encoding="utf-8"))
     state = json.load(open(STATE, encoding="utf-8")) if os.path.exists(STATE) else {"seen": [], "started": False}
@@ -285,7 +294,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        gifts_only() if "--gifts-only" in sys.argv else main()
+        if "--gifts-only" in sys.argv:
+            gifts_only()
+        elif "--stock-only" in sys.argv:
+            stock_only()
+        else:
+            main()
     except Exception as e:
         print("deals feed failed:", type(e).__name__, str(e)[:120])
         sys.exit(1)
